@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:4.8.0
+    container_name: wazuh.indexer
+    hostname: wazuh.indexer
+    restart: always
+    ports:
+      - "9200:9200"
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - "discovery.type=single-node"
+      - "network.host=0.0.0.0"
+    volumes:
+      - wazuh_indexer_data:/var/lib/wazuh-indexer
+    networks:
+      - soc-net
+
+  wazuh.manager:
+    image: wazuh/wazuh-manager:4.8.0
+    container_name: wazuh.manager
+    hostname: wazuh.manager
+    restart: always
+    ports:
+      - "1514:1514/tcp" # Agent communication
+      - "1514:1514/udp" # Agent communication
+      - "1515:1515/tcp" # Agent registration
+      - "55000:55000/tcp" # Wazuh API
+    environment:
+      - INDEXER_URL=https://wazuh.indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+    volumes:
+      - wazuh_ossec_api:/var/ossec/api/configuration
+      - wazuh_ossec_etc:/var/ossec/etc
+      - wazuh_ossec_logs:/var/ossec/logs
+      - wazuh_ossec_queue:/var/ossec/queue
+      - wazuh_ossec_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_ossec_integrations:/var/ossec/integrations
+      - wazuh_ossec_active_response:/var/ossec/active-response/bin
+      - wazuh_ossec_agentless:/var/ossec/agentless
+      - wazuh_ossec_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+    depends_on:
+      - wazuh.indexer
+    networks:
+      - soc-net
+
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:4.8.0
+    container_name: wazuh.dashboard
+    hostname: wazuh.dashboard
+    restart: always
+    ports:
+      - "443:5601" # Mapped to 443 for web UI as per standard request, or 8443
+    environment:
+      - INDEXER_URL=https://wazuh.indexer:9200
+      - WAZUH_API_URL=https://wazuh.manager:55000
+      - OPENSEARCH_HOSTS=https://wazuh.indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+    depends_on:
+      - wazuh.manager
+    networks:
+      - soc-net
+
+  victim-endpoint:
+    image: ubuntu:22.04
+    container_name: victim-endpoint
+    hostname: victim-endpoint
+    restart: always
+    environment:
+      - WAZUH_MANAGER=wazuh.manager
+      - WAZUH_REGISTRATION_SERVER=wazuh.manager
+      - WAZUH_AGENT_NAME=victim-endpoint
+    command: >
+      bash -c "
+      apt-get update && apt-get install -y curl lsb-release gnupg2 sudo python3 nano wget openssh-server iptables rsyslog &&
+      curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import &&
+      chmod 644 /usr/share/keyrings/wazuh.gpg &&
+      echo 'deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main' | tee -a /etc/apt/sources.list.d/wazuh.list &&
+      apt-get update && apt-get install -y wazuh-agent=4.8.0-1 &&
+      service rsyslog start &&
+      service wazuh-agent start &&
+      tail -f /dev/null
+      "
+    networks:
+      - soc-net
+    volumes:
+      - ./config/agent_ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - ./attack_scripts:/root/attack_scripts
+    depends_on:
+      - wazuh.manager
+
+networks:
+  soc-net:
+    driver: bridge
+
+volumes:
+  wazuh_indexer_data:
+  wazuh_ossec_api:
+  wazuh_ossec_etc:
+  wazuh_ossec_logs:
+  wazuh_ossec_queue:
+  wazuh_ossec_var_multigroups:
+  wazuh_ossec_integrations:
+  wazuh_ossec_active_response:
+  wazuh_ossec_agentless:
+  wazuh_ossec_wodles:
+  filebeat_etc:
+  filebeat_var:
