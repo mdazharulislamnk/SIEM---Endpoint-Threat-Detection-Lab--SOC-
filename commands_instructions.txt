@@ -1,0 +1,69 @@
+# ==============================================================================
+# SIEM & Endpoint Security Home Lab - CLI Cheat Sheet
+# ==============================================================================
+
+# 1. System Prerequisites & Docker Initialization
+# Ensure Docker and Docker Compose are installed.
+# Recommended RAM: 8GB+ for the Wazuh stack
+docker --version
+docker compose version
+
+# Check memory limits (Linux/WSL)
+sysctl vm.max_map_count
+# Note: Wazuh Indexer requires vm.max_map_count to be at least 262144.
+# Run this on your host if the container fails to start:
+# sudo sysctl -w vm.max_map_count=262144
+
+# 2. Cluster Launch Commands
+# Build and start all containers in detached mode
+docker compose up -d
+
+# Verify all containers are running
+docker compose ps
+
+# Check logs for the manager or indexer if they fail to start
+docker compose logs -f wazuh.manager
+docker compose logs -f wazuh.indexer
+
+# 3. Agent Enrollment & Health Checks
+# The victim-endpoint container is configured to auto-enroll. 
+# Verify agent status on the Wazuh Manager:
+docker exec -it wazuh.manager /var/ossec/bin/agent_control -l
+
+# Check agent logs on the victim endpoint:
+docker exec -it victim-endpoint tail -f /var/ossec/logs/ossec.log
+
+# 4. Interactive Terminal Access
+# Access the Wazuh Manager container:
+docker exec -it wazuh.manager bash
+
+# Access the Victim Endpoint container (where attacks are simulated):
+docker exec -it victim-endpoint bash
+
+# 5. Attack Simulation Execution
+# Execute the SSH Brute Force Simulation (Run inside the victim endpoint):
+docker exec -it victim-endpoint python3 /root/attack_scripts/brute_force_sim.py
+
+# Execute the Privilege Escalation Simulation (Run inside the victim endpoint):
+docker exec -it victim-endpoint bash /root/attack_scripts/priv_esc_sim.sh
+
+# 6. Log Inspection & SIEM Service Verification
+# View raw auth logs on the victim endpoint (simulated sshd failures):
+docker exec -it victim-endpoint tail -n 50 /var/log/auth.log
+
+# View raw syslog on the victim endpoint (mock rootkit):
+docker exec -it victim-endpoint tail -n 50 /var/log/syslog
+
+# Check Wazuh Manager alerts file for triggered rules (on the manager):
+docker exec -it wazuh.manager tail -f /var/ossec/logs/alerts/alerts.log
+# Look for rule IDs 5710, 5712 (Brute Force) or 5901, 5902 (Privilege Escalation/Rootkit).
+
+# 7. Teardown and Volume Reset Procedures
+# Stop and remove all containers, networks, and images (preserve volumes)
+docker compose down
+
+# FULL RESET: Stop, remove containers, networks, AND VOLUMES (WARNING: Deletes all SIEM data)
+docker compose down -v
+
+# Clean up dangling images and volumes if necessary
+docker system prune -a --volumes
