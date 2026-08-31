@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   wazuh.indexer:
     image: wazuh/wazuh-indexer:4.8.0
